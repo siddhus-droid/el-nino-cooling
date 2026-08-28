@@ -1,0 +1,26 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Python
+backend/venv/
+backend/.venv/
+backend/**/__pycache__/
+*.pyc
+
+# Generated backend data
+backend/app/storage/data/*.pkl
+backend/app/storage/data/*.json
+backend/app/storage/models/*.joblib
+backend/app/uploads/*.csv
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
