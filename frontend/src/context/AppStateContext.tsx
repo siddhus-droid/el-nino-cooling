@@ -23,6 +23,7 @@ import type {
   ClustersResponse,
   CompareResponse,
   DBSCANTrainResponse,
+  DatasetProfileName,
   EDAResponse,
   KMeansTrainResponse,
   NormalizedApiError,
@@ -264,6 +265,11 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         if (cancelled) return;
 
         const m = metricsResp.metrics as Record<string, any>;
+        // Schema info lives in the preprocessing report; training metrics
+        // inherit it (models are always trained on the preprocessed dataset).
+        const restoredProfile: DatasetProfileName =
+          m.preprocessing_report?.dataset_profile ?? "legacy";
+        const restoredFeatures: string[] = m.preprocessing_report?.clustering_features ?? [];
 
         if (m.preprocessing_report) {
           setPreprocess({
@@ -287,6 +293,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
               inertia: m.kmeans.inertia,
               cluster_counts: m.kmeans.cluster_counts,
               elbow_scores: m.kmeans.elbow_scores ?? {},
+              dataset_profile: restoredProfile,
+              clustering_features: restoredFeatures,
             },
             loading: false,
             error: null,
@@ -312,6 +320,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
               n_noise: m.dbscan.n_noise,
               silhouette_score: m.dbscan.silhouette_score,
               cluster_counts: m.dbscan.cluster_counts,
+              dataset_profile: restoredProfile,
+              clustering_features: restoredFeatures,
             },
             loading: false,
             error: null,

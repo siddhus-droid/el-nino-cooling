@@ -7,6 +7,7 @@ import {
   Waypoints,
   type LucideIcon,
 } from "lucide-react";
+import { isClimacool } from "../utils/enso";
 import { useAppState } from "../context/AppStateContext";
 import { PageHeader } from "../components/layout/PageHeader";
 import { Card } from "../components/ui/Card";
@@ -29,7 +30,10 @@ export function Insights() {
   const insights: Insight[] = [];
 
   // ---- Correlation insight (from actual correlation_matrix data) ----
-  const corr = correlationBetween(eda.data, "Temperature", "Electricity_Consumption");
+  const climacool = isClimacool(eda.data?.dataset_profile);
+  // Correlation-matrix axis labels use spaces (backend display names).
+  const consumptionLabel = climacool ? "State Electricity Consumption" : "Electricity Consumption";
+  const corr = correlationBetween(eda.data, "Temperature", consumptionLabel);
   if (corr !== null) {
     const strength = Math.abs(corr) >= 0.6 ? "strong" : Math.abs(corr) >= 0.3 ? "moderate" : "weak";
     const direction = corr >= 0 ? "positive" : "negative";
@@ -37,13 +41,26 @@ export function Insights() {
       icon: TrendingUp,
       accent: "hot",
       title: `${strength[0].toUpperCase()}${strength.slice(1)} ${direction} correlation between temperature and consumption`,
-      body: `Based on the current uploaded dataset, temperature and electricity consumption show a ${strength} ${direction} correlation (r = ${corr.toFixed(
+      body: `Based on the current uploaded dataset, temperature and ${climacool ? "state-level electricity consumption" : "electricity consumption"} show a ${strength} ${direction} correlation (r = ${corr.toFixed(
         3
       )}). ${
         corr >= 0.3
           ? "As temperatures rise, electricity consumption tends to rise with them — consistent with cooling-driven demand."
           : "The relationship is weaker than expected, suggesting other factors (humidity, city-level infrastructure) may be co-driving consumption."
       }`,
+    });
+  }
+
+  // ---- ONI association insight (ClimaCool data only; no causal claim) ----
+  const corrOni = climacool ? correlationBetween(eda.data, "ONI Index", "State Electricity Consumption") : null;
+  if (corrOni !== null) {
+    insights.push({
+      icon: TrendingUp,
+      accent: "cool",
+      title: "ONI index and state electricity consumption",
+      body: `Based on the current uploaded dataset, ONI index and state-level electricity consumption have a correlation of r = ${corrOni.toFixed(
+        3
+      )}. This is an association within the supplied data only; it does not show that El Niño caused changes in electricity consumption.`,
     });
   }
 
@@ -63,7 +80,7 @@ export function Insights() {
         title: "Potential cooling-demand hotspots identified",
         body: `Based on the current uploaded dataset, K-Means found that ${pct}% of records fall into "High" or "Extreme Cooling Demand" clusters (${
           extreme + high
-        } of ${total} records). These represent the combinations of temperature, humidity, and consumption that most strongly warrant cooling-infrastructure attention.`,
+        } of ${total} records). These represent the combinations of temperature, consumption${climacool ? " and ONI index" : ", and humidity"} that most strongly warrant cooling-infrastructure attention.`,
       });
     }
   }

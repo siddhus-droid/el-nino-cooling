@@ -56,9 +56,9 @@ export function Sidebar({
               <Thermometer size={16} className="text-ground-950" strokeWidth={2.5} />
             </div>
             <span className="font-display font-semibold text-ground-50 text-sm leading-tight">
-              El Niño Cooling
+              ThermoScope
               <br />
-              <span className="text-ground-400 font-normal text-xs">Impact Dashboard</span>
+              <span className="text-ground-400 font-normal text-xs">Urban Climate Intelligence</span>
             </span>
           </div>
           <button
@@ -93,9 +93,8 @@ export function Sidebar({
 
         <div className="px-5 py-4 border-t border-ground-800 shrink-0">
           <p className="text-ground-500 text-xs leading-relaxed">
-            TY AI-DS · PBL Project 48
             <br />
-            Urban Cooling · Clustering Engine
+           Climate Analytics Platform
           </p>
         </div>
       </aside>

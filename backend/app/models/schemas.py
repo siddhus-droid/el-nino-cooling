@@ -32,6 +32,9 @@ class UploadResponse(BaseModel):
     filename: str
     rows: int
     columns: list[str]
+    dataset_profile: str = "legacy"
+    dataset_profile_display: str = ""
+    clustering_features: list[str] = Field(default_factory=list)
     message: str
 
 
@@ -43,6 +46,8 @@ class PreprocessResponse(BaseModel):
     missing_values_handled: int
     outliers_removed: int
     columns: list[str]
+    dataset_profile: str = "legacy"
+    clustering_features: list[str] = Field(default_factory=list)
     message: str
 
 
@@ -52,6 +57,7 @@ class PreprocessResponse(BaseModel):
 class EDAResponse(BaseModel):
     status: str = "success"
     charts: dict[str, Any]
+    dataset_profile: str = "legacy"
 
 
 # ---------------------------------------------------------------------------
@@ -72,6 +78,8 @@ class KMeansTrainResponse(BaseModel):
     inertia: float
     cluster_counts: dict[str, int]
     elbow_scores: dict[str, float]
+    dataset_profile: str = "legacy"
+    clustering_features: list[str] = Field(default_factory=list)
     message: str
 
 
@@ -88,6 +96,8 @@ class DBSCANTrainResponse(BaseModel):
     n_noise: int
     silhouette_score: Optional[float]
     cluster_counts: dict[str, int]
+    dataset_profile: str = "legacy"
+    clustering_features: list[str] = Field(default_factory=list)
     message: str
 
 
@@ -115,9 +125,18 @@ class CompareResponse(BaseModel):
 class PredictionRequest(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
     temperature: float = Field(..., description="Temperature in Celsius")
-    humidity: float = Field(..., ge=0, le=100, description="Relative humidity percentage")
-    electricity_consumption: float = Field(..., ge=0, description="Electricity consumption (kWh)")
+    # Legacy-schema inputs (required only when the legacy dataset is loaded)
+    humidity: Optional[float] = Field(default=None, ge=0, le=100, description="Relative humidity percentage")
+    electricity_consumption: Optional[float] = Field(default=None, ge=0, description="Electricity consumption (kWh)")
+    # ClimaCool real-schema inputs (STATE-level electricity)
+    state_electricity_consumption: Optional[float] = Field(default=None, ge=0, description="State electricity consumption")
+    oni_index: Optional[float] = Field(default=None, description="NOAA ONI index")
     population_density: Optional[float] = Field(default=None, ge=0)
+    # Informational only - never used as clustering features
+    city: Optional[str] = None
+    state: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
     model_type: str = Field(default="kmeans", description="'kmeans' or 'dbscan'")
 
     @field_validator("model_type")
@@ -133,10 +152,16 @@ class PredictionResponse(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
     status: str = "success"
     cluster: int
+    is_noise: bool = False
     risk_level: str
     cooling_demand_category: str
     recommendations: list[str]
     model_used: str
+    dataset_profile: str = "legacy"
+    clustering_features: list[str] = Field(default_factory=list)
+    oni_index: Optional[float] = None
+    enso_phase: Optional[str] = None
+    explanation: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -164,9 +189,16 @@ class ClusterRecordItem(BaseModel):
     latitude: float
     longitude: float
     temperature: float
-    humidity: float
-    electricity_consumption: float
+    humidity: Optional[float] = None
+    electricity_consumption: Optional[float] = None
     population_density: Optional[float] = None
+    state: Optional[str] = None
+    population: Optional[float] = None
+    min_temperature: Optional[float] = None
+    max_temperature: Optional[float] = None
+    state_electricity_consumption: Optional[float] = None
+    oni_index: Optional[float] = None
+    enso_phase: Optional[str] = None
     kmeans_cluster: Optional[int] = None
     kmeans_risk_level: Optional[str] = None
     dbscan_cluster: Optional[int] = None
@@ -175,6 +207,7 @@ class ClusterRecordItem(BaseModel):
 
 class ClusterRecordsResponse(BaseModel):
     status: str = "success"
+    dataset_profile: str = "legacy"
     total_records: int
     kmeans_trained: bool
     dbscan_trained: bool

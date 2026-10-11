@@ -4,8 +4,6 @@ list of actionable strategies.
 """
 from __future__ import annotations
 
-from app.recommendations.risk_engine import RISK_LEVELS
-
 RECOMMENDATIONS_MAP: dict[str, list[str]] = {
     "Extreme Cooling Demand": [
         "Increase urban green cover and expand tree canopy in high-density zones",
@@ -37,8 +35,16 @@ RECOMMENDATIONS_MAP: dict[str, list[str]] = {
 
 
 def get_recommendations(risk_level: str) -> list[str]:
-    """Return the recommendation list for a given risk level string."""
-    return RECOMMENDATIONS_MAP.get(risk_level, RECOMMENDATIONS_MAP[RISK_LEVELS[0]])
+    """
+    Return the recommendation list for a given risk level string.
+
+    Deliberately returns an empty list (not Low's recommendations) for any
+    string that isn't one of the four canonical RISK_LEVELS - notably
+    NOISE_LABEL ("Noise / Outlier"), since generating actionable
+    cooling-demand recommendations for a record the model couldn't
+    classify would misrepresent it as a real risk assessment.
+    """
+    return RECOMMENDATIONS_MAP.get(risk_level, [])
 
 
 def get_all_recommendations() -> dict[str, list[str]]:

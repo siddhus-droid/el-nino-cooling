@@ -5,6 +5,7 @@ const RISK_STYLES: Record<string, string> = {
   "Moderate Cooling Demand": "bg-amber-500/15 text-amber-500 ring-1 ring-amber-500/30",
   "High Cooling Demand": "bg-hot-500/15 text-hot-400 ring-1 ring-hot-500/30",
   "Extreme Cooling Demand": "bg-hot-600/20 text-hot-500 ring-1 ring-hot-600/40",
+  "Noise / Outlier": "bg-ground-700 text-ground-300 ring-1 ring-ground-500 border border-dashed border-ground-400",
 };
 
 export function RiskBadge({ level }: { level: string }) {
@@ -40,4 +41,11 @@ export function Badge({
       {children}
     </span>
   );
+}
+
+/** ENSO phase chip (phase label comes from the supplied ONI classification). */
+export function EnsoBadge({ phase }: { phase: string }) {
+  const tone: "danger" | "info" | "neutral" =
+    phase === "El Nino" ? "danger" : phase === "La Nina" ? "info" : "neutral";
+  return <Badge tone={tone}>ENSO: {phase}</Badge>;
 }

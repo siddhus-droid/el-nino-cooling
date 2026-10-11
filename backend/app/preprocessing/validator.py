@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from app.config import settings
+from app.config import DATASET_PROFILES, DatasetProfile, settings
 from app.utils.exceptions import (
     EmptyDatasetError,
     InvalidNumericValueError,
@@ -27,7 +27,11 @@ def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     e.g. "electricity consumption" -> "Electricity_Consumption"
     """
     normalized_map = {}
-    canonical_targets = list(settings.REQUIRED_COLUMNS) + list(settings.OPTIONAL_COLUMNS)
+    canonical_targets: list[str] = []
+    for profile in DATASET_PROFILES:
+        for col in (*profile.required_columns, *profile.optional_columns, *profile.numeric_columns):
+            if col not in canonical_targets:
+                canonical_targets.append(col)
     canonical_lookup = {
         col.replace("_", "").replace(" ", "").lower(): col for col in canonical_targets
     }
@@ -42,18 +46,25 @@ def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df.rename(columns=normalized_map)
 
 
-def validate_columns(df: pd.DataFrame) -> None:
-    """Raise MissingColumnsError if any required column is absent."""
-    missing = [c for c in settings.REQUIRED_COLUMNS if c not in df.columns]
-    if missing:
-        raise MissingColumnsError(
-            message=f"Dataset is missing required columns: {missing}",
-            details={
-                "missing_columns": missing,
-                "required_columns": list(settings.REQUIRED_COLUMNS),
-                "found_columns": list(df.columns),
-            },
-        )
+def detect_profile(columns) -> DatasetProfile:
+    """
+    Pick the first supported schema whose required columns are all present.
+    Raises MissingColumnsError (listing every supported schema) otherwise.
+    """
+    cols = set(columns)
+    for profile in DATASET_PROFILES:
+        if all(c in cols for c in profile.required_columns):
+            return profile
+    raise MissingColumnsError(
+        message=(
+            "Dataset does not match any supported schema. Required columns: "
+            + " | ".join(f"{p.name}: {list(p.required_columns)}" for p in DATASET_PROFILES)
+        ),
+        details={
+            "supported_schemas": {p.name: list(p.required_columns) for p in DATASET_PROFILES},
+            "found_columns": list(columns),
+        },
+    )
 
 
 def validate_not_empty(df: pd.DataFrame) -> None:
@@ -76,14 +87,16 @@ def validate_row_limit(df: pd.DataFrame) -> None:
         )
 
 
-def validate_numeric_columns(df: pd.DataFrame) -> pd.DataFrame:
+def validate_numeric_columns(df: pd.DataFrame, profile: DatasetProfile) -> pd.DataFrame:
     """
-    Coerce numeric columns to numeric dtype. Raises InvalidNumericValueError
-    if a column is entirely non-numeric (i.e. coercion yields all-NaN on a
-    column that had non-null values to begin with).
+    Coerce the profile's numeric columns to numeric dtype. Raises
+    InvalidNumericValueError if a column is entirely non-numeric.
     """
     df = df.copy()
-    for col in settings.NUMERIC_COLUMNS:
+    numeric = list(profile.numeric_columns) + [
+        c for c in profile.optional_columns if c not in profile.categorical_columns
+    ]
+    for col in numeric:
         if col not in df.columns:
             continue
         original_non_null = df[col].notna().sum()
@@ -97,23 +110,22 @@ def validate_numeric_columns(df: pd.DataFrame) -> pd.DataFrame:
             )
         df[col] = coerced
 
-    if "Population_Density" in df.columns:
-        df["Population_Density"] = pd.to_numeric(df["Population_Density"], errors="coerce")
-
     return df
 
 
-def validate_dataset(df: pd.DataFrame) -> pd.DataFrame:
+def validate_dataset(df: pd.DataFrame) -> tuple[pd.DataFrame, DatasetProfile]:
     """
-    Full validation pipeline: normalize columns, check required columns
-    exist, check non-empty, check row limit, coerce numeric types.
+    Full validation pipeline: normalize columns, detect the schema, check
+    non-empty, check row limit, coerce numeric types.
 
-    Returns the validated (and lightly normalized) dataframe.
+    Returns (validated dataframe, detected DatasetProfile).
     """
     df = normalize_columns(df)
-    validate_columns(df)
+    profile = detect_profile(df.columns)
     validate_not_empty(df)
     validate_row_limit(df)
-    df = validate_numeric_columns(df)
-    logger.info("Dataset validated successfully: %d rows, %d columns", len(df), len(df.columns))
-    return df
+    df = validate_numeric_columns(df, profile)
+    logger.info(
+        "Dataset validated (%s): %d rows, %d columns", profile.name, len(df), len(df.columns)
+    )
+    return df, profile

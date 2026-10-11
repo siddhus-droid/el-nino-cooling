@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
 
-from app.config import settings
+from app.config import DatasetProfile, settings
 from app.utils.exceptions import EmptyDatasetError
 from app.utils.logger import get_logger
 
@@ -25,6 +25,8 @@ class PreprocessingReport:
     missing_values_handled: int = 0
     outliers_removed: int = 0
     columns: list = field(default_factory=list)
+    dataset_profile: str = "legacy"
+    clustering_features: list = field(default_factory=list)
 
 
 def parse_dates(df: pd.DataFrame) -> pd.DataFrame:
@@ -36,7 +38,7 @@ def parse_dates(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def handle_missing_values(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
+def handle_missing_values(df: pd.DataFrame, profile: DatasetProfile) -> tuple[pd.DataFrame, int]:
     """
     Impute missing numeric values with column median, and drop rows where
     critical identifying fields (Date, City) are missing.
@@ -44,7 +46,10 @@ def handle_missing_values(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
     Returns (df, count_of_missing_cells_handled).
     """
     df = df.copy()
-    numeric_cols = [c for c in settings.NUMERIC_COLUMNS if c in df.columns]
+    numeric_cols = [
+        c for c in (*profile.numeric_columns, *profile.optional_columns)
+        if c in df.columns and c not in profile.categorical_columns
+    ]
 
     missing_before = int(df[numeric_cols].isna().sum().sum()) if numeric_cols else 0
 
@@ -52,11 +57,6 @@ def handle_missing_values(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
         if df[col].isna().any():
             median_val = df[col].median()
             df[col] = df[col].fillna(median_val)
-
-    if "Population_Density" in df.columns and df["Population_Density"].isna().any():
-        median_val = df["Population_Density"].median()
-        missing_before += int(df["Population_Density"].isna().sum())
-        df["Population_Density"] = df["Population_Density"].fillna(median_val)
 
     # Rows without a usable date or city cannot be meaningfully analyzed
     before_drop = len(df)
@@ -77,14 +77,16 @@ def remove_duplicates(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
 
 
 def detect_and_remove_outliers(
-    df: pd.DataFrame, z_threshold: float = settings.OUTLIER_Z_THRESHOLD
+    df: pd.DataFrame,
+    profile: DatasetProfile,
+    z_threshold: float = settings.OUTLIER_Z_THRESHOLD,
 ) -> tuple[pd.DataFrame, int]:
     """
     Remove rows where any clustering feature is a statistical outlier,
     using the Z-score method (|z| > threshold).
     """
     df = df.copy()
-    feature_cols = [c for c in settings.CLUSTERING_FEATURES if c in df.columns]
+    feature_cols = [c for c in profile.clustering_features if c in df.columns]
     if not feature_cols:
         return df, 0
 
@@ -97,27 +99,29 @@ def detect_and_remove_outliers(
     return df, removed
 
 
-def select_features(df: pd.DataFrame) -> pd.DataFrame:
+def select_features(df: pd.DataFrame, profile: DatasetProfile) -> pd.DataFrame:
     """
     Select the columns relevant for downstream analysis/modeling, keeping
     identifying metadata (Date, City, Lat/Lon) plus engineered/optional
     features present in the dataframe.
     """
-    keep_cols = list(settings.REQUIRED_COLUMNS) + ["Month", "Year"]
-    if "Population_Density" in df.columns:
-        keep_cols.append("Population_Density")
+    keep_cols = (
+        list(profile.required_columns) + list(profile.optional_columns) + ["Month", "Year"]
+    )
     keep_cols = [c for c in keep_cols if c in df.columns]
     return df[keep_cols].copy()
 
 
-def normalize_features(df: pd.DataFrame) -> tuple[pd.DataFrame, StandardScaler]:
+def normalize_features(
+    df: pd.DataFrame, profile: DatasetProfile
+) -> tuple[pd.DataFrame, StandardScaler]:
     """
     Apply StandardScaler to the clustering feature columns, storing the
     scaled values in new `<col>_scaled` columns so raw values are preserved
     for reporting/EDA.
     """
     df = df.copy()
-    feature_cols = [c for c in settings.CLUSTERING_FEATURES if c in df.columns]
+    feature_cols = list(profile.clustering_features)
     scaler = StandardScaler()
     scaled_values = scaler.fit_transform(df[feature_cols])
     for i, col in enumerate(feature_cols):
@@ -125,7 +129,9 @@ def normalize_features(df: pd.DataFrame) -> tuple[pd.DataFrame, StandardScaler]:
     return df, scaler
 
 
-def run_preprocessing_pipeline(df: pd.DataFrame) -> tuple[pd.DataFrame, StandardScaler, PreprocessingReport]:
+def run_preprocessing_pipeline(
+    df: pd.DataFrame, profile: DatasetProfile
+) -> tuple[pd.DataFrame, StandardScaler, PreprocessingReport]:
     """
     Execute the full preprocessing pipeline end to end.
 
@@ -134,23 +140,25 @@ def run_preprocessing_pipeline(df: pd.DataFrame) -> tuple[pd.DataFrame, Standard
     report = PreprocessingReport(rows_before=len(df))
 
     df = parse_dates(df)
-    df, missing_handled = handle_missing_values(df)
+    df, missing_handled = handle_missing_values(df, profile)
     df, duplicates_removed = remove_duplicates(df)
-    df, outliers_removed = detect_and_remove_outliers(df)
-    df = select_features(df)
+    df, outliers_removed = detect_and_remove_outliers(df, profile)
+    df = select_features(df, profile)
 
     if df.empty:
         raise EmptyDatasetError(
             message="Dataset became empty after preprocessing (all rows were invalid/outliers)."
         )
 
-    df, scaler = normalize_features(df)
+    df, scaler = normalize_features(df, profile)
 
     report.rows_after = len(df)
     report.duplicates_removed = duplicates_removed
     report.missing_values_handled = missing_handled
     report.outliers_removed = outliers_removed
     report.columns = list(df.columns)
+    report.dataset_profile = profile.name
+    report.clustering_features = list(profile.clustering_features)
 
     logger.info(
         "Preprocessing complete: %d -> %d rows (dupes=%d, outliers=%d)",

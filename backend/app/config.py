@@ -7,7 +7,79 @@ never reads os.environ directly.
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
 from pathlib import Path
+
+
+@dataclass(frozen=True)
+class DatasetProfile:
+    """
+    Describes one supported CSV schema. The clustering feature list lives
+    here (the single place to change it) rather than being hardcoded in
+    preprocessing / training / prediction.
+    """
+
+    name: str
+    display_name: str
+    required_columns: tuple
+    optional_columns: tuple
+    numeric_columns: tuple
+    categorical_columns: tuple
+    clustering_features: tuple
+    temperature_col: str
+    consumption_col: str
+
+
+# Original test-data schema (kept working for backward compatibility).
+LEGACY_PROFILE = DatasetProfile(
+    name="legacy",
+    display_name="Legacy schema (Temperature / Humidity / Electricity)",
+    required_columns=(
+        "Date", "City", "Latitude", "Longitude",
+        "Temperature", "Humidity", "Electricity_Consumption",
+    ),
+    optional_columns=("Population_Density",),
+    numeric_columns=(
+        "Latitude", "Longitude", "Temperature", "Humidity", "Electricity_Consumption",
+    ),
+    categorical_columns=(),
+    clustering_features=("Temperature", "Humidity", "Electricity_Consumption"),
+    temperature_col="Temperature",
+    consumption_col="Electricity_Consumption",
+)
+
+# Real combined dataset (ClimaCool_AI_Real_Combined_2017_2019.csv).
+# Electricity is STATE-level. Latitude/Longitude/City/Date/ENSO_Phase and
+# Population are intentionally NOT clustering features.
+CLIMACOOL_REAL_PROFILE = DatasetProfile(
+    name="climacool_real",
+    display_name="ClimaCool real combined dataset",
+    required_columns=(
+        "Date", "City", "Latitude", "Longitude",
+        "Temperature", "State_Electricity_Consumption", "ONI_Index",
+    ),
+    optional_columns=(
+        "State", "Population", "Min_Temperature", "Max_Temperature", "ENSO_Phase",
+    ),
+    numeric_columns=(
+        "Latitude", "Longitude", "Population", "Temperature", "Min_Temperature",
+        "Max_Temperature", "State_Electricity_Consumption", "ONI_Index",
+    ),
+    categorical_columns=("State", "ENSO_Phase"),
+    clustering_features=("Temperature", "State_Electricity_Consumption", "ONI_Index"),
+    temperature_col="Temperature",
+    consumption_col="State_Electricity_Consumption",
+)
+
+# Order matters: the first profile whose required columns are all present wins.
+DATASET_PROFILES: tuple = (CLIMACOOL_REAL_PROFILE, LEGACY_PROFILE)
+
+
+def get_profile_by_name(name: str | None) -> DatasetProfile:
+    for profile in DATASET_PROFILES:
+        if profile.name == name:
+            return profile
+    return LEGACY_PROFILE
 
 
 class Settings:
@@ -27,6 +99,7 @@ class Settings:
     # dependency-light.
     RAW_DATA_FILE: Path = DATA_DIR / "raw_dataset.pkl"
     PROCESSED_DATA_FILE: Path = DATA_DIR / "processed_dataset.pkl"
+    PROFILE_FILE: Path = DATA_DIR / "dataset_profile.json"
     KMEANS_MODEL_FILE: Path = MODEL_DIR / "kmeans_model.joblib"
     DBSCAN_MODEL_FILE: Path = MODEL_DIR / "dbscan_model.joblib"
     SCALER_FILE: Path = MODEL_DIR / "scaler.joblib"
@@ -34,32 +107,12 @@ class Settings:
     RESULTS_FILE: Path = DATA_DIR / "results_dataset.pkl"
 
     # --- Dataset schema ----------------------------------------------------
-    REQUIRED_COLUMNS: tuple = (
-        "Date",
-        "City",
-        "Latitude",
-        "Longitude",
-        "Temperature",
-        "Humidity",
-        "Electricity_Consumption",
-    )
-
-    NUMERIC_COLUMNS: tuple = (
-        "Latitude",
-        "Longitude",
-        "Temperature",
-        "Humidity",
-        "Electricity_Consumption",
-    )
-
-    # Features actually fed into the clustering algorithms
-    CLUSTERING_FEATURES: tuple = (
-        "Temperature",
-        "Humidity",
-        "Electricity_Consumption",
-    )
-
-    OPTIONAL_COLUMNS: tuple = ("Population_Density",)
+    # Schemas live in DATASET_PROFILES above (auto-detected on upload).
+    # The aliases below keep the legacy schema available to old callers.
+    REQUIRED_COLUMNS: tuple = LEGACY_PROFILE.required_columns
+    NUMERIC_COLUMNS: tuple = LEGACY_PROFILE.numeric_columns
+    CLUSTERING_FEATURES: tuple = LEGACY_PROFILE.clustering_features
+    OPTIONAL_COLUMNS: tuple = LEGACY_PROFILE.optional_columns
 
     # --- Preprocessing -------------------------------------------------
     OUTLIER_Z_THRESHOLD: float = 3.0
@@ -72,8 +125,8 @@ class Settings:
     DBSCAN_MIN_SAMPLES_CANDIDATES: tuple = (3, 5, 8, 10)
 
     # --- Misc ------------------------------------------------------------
-    APP_NAME: str = "El Nino Urban Cooling Impact Assessment API"
-    APP_VERSION: str = "1.0.0"
+    APP_NAME: str = "ClimaCool AI — Urban Climate & Cooling Intelligence API"
+    APP_VERSION: str = "1.1.0"
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
 
     def ensure_directories(self) -> None:

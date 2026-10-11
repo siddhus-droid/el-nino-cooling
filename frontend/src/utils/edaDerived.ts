@@ -71,3 +71,11 @@ export function correlationBetween(
   if (rowIdx === -1 || colIdx === -1) return null;
   return trace.z[rowIdx]?.[colIdx] ?? null;
 }
+
+/** Mean of the `y` values across every trace of a scatter chart (e.g. state electricity). */
+export function meanYFromScatter(eda: EDAResponse | null, chartKey: string): number | null {
+  const traces = getTraces(eda, chartKey) as Array<{ y?: number[] }> | null;
+  if (!traces) return null;
+  const ys = traces.flatMap((t) => (Array.isArray(t.y) ? t.y : []));
+  return ys.length > 0 ? ys.reduce((a, b) => a + b, 0) / ys.length : null;
+}

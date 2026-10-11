@@ -7,8 +7,14 @@ export interface CityGroup {
   records: ClusterRecordItem[];
   count: number;
   avgTemperature: number;
-  avgHumidity: number;
-  avgElectricityConsumption: number;
+  /** Null when the loaded dataset has no such column (e.g. Humidity is not in the ClimaCool data). */
+  avgHumidity: number | null;
+  avgElectricityConsumption: number | null;
+  /** State-level electricity (ClimaCool dataset) - NOT city-level. */
+  avgStateElectricityConsumption: number | null;
+  avgOniIndex: number | null;
+  state: string | null;
+  dominantEnsoPhase: string | null;
   /** Most common K-Means cluster among this city's records, if trained. */
   dominantKmeansCluster: number | null;
   dominantKmeansRisk: string | null;
@@ -35,6 +41,15 @@ function mode<T>(values: T[]): T | null {
 
 function mean(values: number[]): number {
   return values.reduce((a, b) => a + b, 0) / values.length;
+}
+
+/** Mean of a field over only the records that actually have it; null if none do. */
+function meanOf(
+  records: ClusterRecordItem[],
+  pick: (r: ClusterRecordItem) => number | null | undefined
+): number | null {
+  const vals = records.map(pick).filter((v): v is number => typeof v === "number");
+  return vals.length > 0 ? mean(vals) : null;
 }
 
 /**
@@ -83,8 +98,14 @@ export function groupRecordsByCity(records: ClusterRecordItem[]): CityGroup[] {
       records: cityRecords,
       count: cityRecords.length,
       avgTemperature: mean(cityRecords.map((r) => r.temperature)),
-      avgHumidity: mean(cityRecords.map((r) => r.humidity)),
-      avgElectricityConsumption: mean(cityRecords.map((r) => r.electricity_consumption)),
+      avgHumidity: meanOf(cityRecords, (r) => r.humidity),
+      avgElectricityConsumption: meanOf(cityRecords, (r) => r.electricity_consumption),
+      avgStateElectricityConsumption: meanOf(cityRecords, (r) => r.state_electricity_consumption),
+      avgOniIndex: meanOf(cityRecords, (r) => r.oni_index),
+      state: cityRecords.find((r) => r.state)?.state ?? null,
+      dominantEnsoPhase: mode(
+        cityRecords.map((r) => r.enso_phase).filter((v): v is string => !!v)
+      ),
       dominantKmeansCluster,
       dominantKmeansRisk,
       dominantDbscanCluster,

@@ -50,15 +50,18 @@ def save_upload_and_load_df(filename: str, file_bytes: bytes) -> pd.DataFrame:
 def handle_upload(filename: str, file_bytes: bytes) -> dict[str, Any]:
     """Full upload flow: save, parse, validate, store as raw dataset."""
     df = save_upload_and_load_df(filename, file_bytes)
-    validated_df = validate_dataset(df)
+    validated_df, profile = validate_dataset(df)
 
-    app_state.save_raw(validated_df)
+    app_state.save_raw(validated_df, profile)
     logger.info("Upload accepted: %s (%d rows)", filename, len(validated_df))
 
     return {
         "filename": filename,
         "rows": len(validated_df),
         "columns": list(validated_df.columns),
+        "dataset_profile": profile.name,
+        "dataset_profile_display": profile.display_name,
+        "clustering_features": list(profile.clustering_features),
     }
 
 
@@ -67,7 +70,9 @@ def handle_preprocess() -> dict[str, Any]:
     if app_state.raw_df is None:
         raise NoDatasetAvailableError(message="No raw dataset found. Please upload a CSV first.")
 
-    processed_df, scaler, report = run_preprocessing_pipeline(app_state.raw_df)
+    processed_df, scaler, report = run_preprocessing_pipeline(
+        app_state.raw_df, app_state.dataset_profile
+    )
 
     app_state.save_processed(processed_df)
     app_state.save_scaler(scaler)
@@ -83,4 +88,7 @@ def handle_eda() -> dict[str, Any]:
         raise NoDatasetAvailableError(
             message="No dataset available for EDA. Please upload (and ideally preprocess) data first."
         )
-    return eda.generate_all_charts(df)
+    return {
+        "charts": eda.generate_all_charts(df, app_state.dataset_profile),
+        "dataset_profile": app_state.dataset_profile.name,
+    }

@@ -13,6 +13,7 @@ import { Card } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
 import { ErrorState } from "../components/ui/States";
 import { useToast } from "../components/ui/Toast";
+import { CLIMACOOL_DATASET_META, ONI_EXPLANATION, isClimacool } from "../utils/enso";
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -62,7 +63,7 @@ export function Dataset() {
       <PageHeader
         eyebrow="Step 1"
         title="Dataset"
-        description="Upload a CSV containing Date, City, Latitude, Longitude, Temperature, Humidity, and Electricity_Consumption columns."
+        description="Upload a CSV in either supported schema: the ClimaCool real dataset (Date, City, Latitude, Longitude, Temperature, State_Electricity_Consumption, ONI_Index …) or the legacy schema (… Temperature, Humidity, Electricity_Consumption)."
       />
 
       <div className="grid lg:grid-cols-[1fr_0.9fr] gap-6">
@@ -173,7 +174,26 @@ export function Dataset() {
                   <dt className="text-ground-400">Rows</dt>
                   <dd className="text-ground-100 font-mono-data">{upload.data.rows}</dd>
                 </div>
+                <div className="flex justify-between">
+                  <dt className="text-ground-400">Detected schema</dt>
+                  <dd className="text-ground-100 text-right max-w-[60%]">{upload.data.dataset_profile_display}</dd>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <dt className="text-ground-400 shrink-0">Clustering features</dt>
+                  <dd className="text-ground-100 font-mono-data text-right text-xs">{upload.data.clustering_features.join(", ")}</dd>
+                </div>
               </dl>
+              {isClimacool(upload.data.dataset_profile) && (
+                <div className="mt-4 rounded-lg bg-ground-800/60 p-3 text-xs text-ground-300 space-y-1">
+                  <p><span className="text-ground-500">Dataset: </span>{CLIMACOOL_DATASET_META.name}</p>
+                  <p><span className="text-ground-500">Cities: </span>{CLIMACOOL_DATASET_META.cities}</p>
+                  <p><span className="text-ground-500">Period: </span>{CLIMACOOL_DATASET_META.period}</p>
+                  <p><span className="text-ground-500">Data type: </span>{CLIMACOOL_DATASET_META.dataType}</p>
+                  <p><span className="text-ground-500">ENSO source: </span>{CLIMACOOL_DATASET_META.ensoSource}</p>
+                  <p className="text-amber-500 font-medium">{CLIMACOOL_DATASET_META.note}</p>
+                  <p className="pt-1 text-ground-400">{ONI_EXPLANATION}</p>
+                </div>
+              )}
               <div className="mt-4">
                 <p className="text-ground-400 text-xs uppercase tracking-wide mb-2">
                   Detected columns
@@ -207,8 +227,8 @@ export function Dataset() {
                   "Latitude",
                   "Longitude",
                   "Temperature",
-                  "Humidity",
-                  "Electricity_Consumption",
+                  "State_Electricity_Consumption",
+                  "ONI_Index",
                 ].map((c) => (
                   <li key={c} className="flex items-center gap-2 text-ground-300">
                     <span className="h-1 w-1 rounded-full bg-ground-500 shrink-0" />
@@ -218,8 +238,10 @@ export function Dataset() {
               </ul>
               <p className="text-ground-500 text-xs mt-4 leading-relaxed">
                 Column names are matched case- and spacing-insensitively by
-                the backend. A <span className="font-mono-data">Population_Density</span>{" "}
-                column is accepted optionally.
+                the backend. Optional: State, Population, Min_Temperature,
+                Max_Temperature, ENSO_Phase. The legacy schema (Humidity +
+                Electricity_Consumption instead of State_Electricity_Consumption +
+                ONI_Index) is also accepted. Electricity data is state-level.
               </p>
             </div>
           )}

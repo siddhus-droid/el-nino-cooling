@@ -15,39 +15,42 @@ Interactive API docs (Swagger UI): http://localhost:8000/docs
 
 ## What changed in this update
 
-- **`app/recommendations/risk_engine.py`** — fixed a bug where DBSCAN noise
-  points (`cluster_id == -1`) were unconditionally hardcoded to "Low Cooling
-  Demand", regardless of their actual readings. `RiskClassifier` now stores
-  the normalization bounds (temp/electricity min/max) used when ranking
-  clusters, and any record that isn't a member of a ranked cluster — DBSCAN
-  noise, or an unseen cluster id — is classified from its own actual
-  Temperature/Electricity_Consumption values, scored on the same scale as
-  the real clusters, instead of defaulting to Low. (Verified against real
-  data: noise points averaging 38.6°C / 523 kWh — the highest values in the
-  dataset — were previously mislabeled "Low"; they now correctly classify
-  as "Extreme Cooling Demand".)
-- **`app/services/training_service.py`** — passes each record's actual
-  Temperature/Electricity_Consumption into `classify_series()` so noise
-  labeling is data-driven during training-set labeling, not just live
-  prediction.
-- **`app/services/prediction_service.py`** — fixed the risk classifier
-  reconstruction, which was previously dropping `cluster_scores` entirely
-  (`RiskClassifier(cluster_to_risk=..., cluster_scores={})`) and never
-  passing the query's actual feature values into `classify()`. Now uses
-  `RiskClassifier.from_dict()` (full state, including score bounds) and
-  passes the real input temperature/electricity through.
-- **`app/visualization/eda.py`** — added `humidity_distribution()` and
-  `humidity_scatter_plot()` charts (Humidity vs Electricity Consumption was
-  previously missing entirely). Removed the old unlabeled duplicate
-  histogram chart.
-- **`app/models/schemas.py`, `app/api/routes.py`** — added
-  `GET /clusters/records`, returning per-record geographic + cluster data
-  (date, city, lat/lon, temperature, humidity, electricity consumption,
-  plus K-Means/DBSCAN cluster + risk level once each model is trained).
-  Powers the frontend's Geo View map. Cluster fields are `null` until each
-  model is actually trained — never fabricated.
+- **`app/recommendations/risk_engine.py`** — DBSCAN noise (`cluster_id == -1`)
+  now always returns a dedicated `NOISE_LABEL` ("Noise / Outlier") sentinel,
+  never a fabricated Low/Moderate/High/Extreme risk level inferred from the
+  point's raw feature values. Previously (an earlier fix in this project)
+  noise points were scored from their own Temperature/Electricity_Consumption
+  values, which was more truthful than the original hardcoded "Low" but
+  still implied a risk judgment DBSCAN itself never made. Per explicit
+  design decision: "a cooling-demand risk level cannot be reliably inferred
+  from the DBSCAN cluster assignment" when that assignment is noise.
+- **`app/recommendations/recommender.py`** — `get_recommendations()` no
+  longer defaults unrecognized risk-level strings (i.e. the noise
+  sentinel) to "Low Cooling Demand"'s recommendation list; returns an
+  empty list instead, since generating cooling-demand recommendations for
+  a point the model couldn't classify would misrepresent it as a real
+  assessment.
+- **`app/services/prediction_service.py`** — `predict()` now sets
+  `is_noise: bool` and `explanation: str | None` on the response. For
+  DBSCAN noise, `explanation` contains the required truthful message and
+  `recommendations` is empty; both are `None`/`[]` for every normal
+  (non-noise) prediction, K-Means or DBSCAN.
+- **`app/models/schemas.py`** — `PredictionResponse` gained `is_noise: bool`
+  and `explanation: Optional[str]`.
+- **`app/visualization/eda.py`** — fixed the Correlation Matrix chart's
+  clipped axis labels ("atitude", "gitude", "erature", etc.) by enabling
+  Plotly `automargin` on both axes, setting generous explicit margins
+  (`l=140, r=40, t=60, b=110`) as a baseline, a `-35°` tick angle on the
+  x-axis, and using spaced display names ("Electricity Consumption"
+  instead of "Electricity_Consumption") for the chart's axis labels only —
+  the underlying correlation values and dataset are byte-for-byte
+  unchanged (verified: max diff vs. directly-computed correlation = 0.0).
+- **`app/visualization/eda.py`, `app/models/schemas.py`,
+  `app/services/prediction_service.py`, `app/api/routes.py`** — (prior fix,
+  still present) `GET /clusters/records` per-record geo + cluster data
+  endpoint; `humidity_distribution`/`humidity_scatter_plot` charts.
 - **`app/preprocessing/preprocessor.py`** — removed a deprecated pandas
-  kwarg (`infer_datetime_format`), harmless cleanup.
+  kwarg, harmless cleanup.
 
 ## API Reference
 

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Sparkles, Thermometer, Droplets, Zap, Users } from "lucide-react";
+import { Sparkles, Thermometer, Droplets, Zap, Users, ScatterChart, Waves, MapPin } from "lucide-react";
 import { useAppState } from "../context/AppStateContext";
 import { PageHeader } from "../components/layout/PageHeader";
 import { Card } from "../components/ui/Card";
@@ -8,6 +8,8 @@ import { Button } from "../components/ui/Button";
 import { RiskBadge } from "../components/ui/Badge";
 import { EmptyState, ErrorState } from "../components/ui/States";
 import { useToast } from "../components/ui/Toast";
+import { ONI_EXPLANATION, isClimacool } from "../utils/enso";
+import { EnsoBadge } from "../components/ui/Badge";
 import type { ModelType, PredictionResponse } from "../api/types";
 import { normalizeApiError } from "../api/client";
 import type { NormalizedApiError } from "../api/types";
@@ -16,7 +18,14 @@ interface FormState {
   temperature: string;
   humidity: string;
   electricity_consumption: string;
+  state_electricity_consumption: string;
+  oni_index: string;
   population_density: string;
+  // Optional context - displayed/sent for reference, never used as clustering features
+  city: string;
+  state: string;
+  latitude: string;
+  longitude: string;
   model_type: ModelType;
 }
 
@@ -24,7 +33,13 @@ const initialForm: FormState = {
   temperature: "",
   humidity: "",
   electricity_consumption: "",
+  state_electricity_consumption: "",
+  oni_index: "",
   population_density: "",
+  city: "",
+  state: "",
+  latitude: "",
+  longitude: "",
   model_type: "kmeans",
 };
 
@@ -34,7 +49,16 @@ function FieldError({ message }: { message?: string }) {
 }
 
 export function Prediction() {
-  const { kmeans, dbscan, doPredict, predictionHistory } = useAppState();
+  const { kmeans, dbscan, doPredict, predictionHistory, upload, preprocess } = useAppState();
+  const profile =
+    preprocess.data?.dataset_profile ??
+    upload.data?.dataset_profile ??
+    kmeans.data?.dataset_profile ??
+    dbscan.data?.dataset_profile;
+  const climacool = isClimacool(profile);
+  // ClimaCool: the same input is also run through the other trained model
+  // so K-Means and DBSCAN results are shown side by side.
+  const [otherResult, setOtherResult] = useState<PredictionResponse | null>(null);
   const { showToast } = useToast();
   const [form, setForm] = useState<FormState>(initialForm);
   const [submitting, setSubmitting] = useState(false);
@@ -54,25 +78,43 @@ export function Prediction() {
     const temperature = parseFloat(form.temperature);
     const humidity = parseFloat(form.humidity);
     const electricity_consumption = parseFloat(form.electricity_consumption);
+    const state_electricity_consumption = parseFloat(form.state_electricity_consumption);
+    const oni_index = parseFloat(form.oni_index);
     const population_density = form.population_density
       ? parseFloat(form.population_density)
       : null;
+    const optNum = (v: string) => (v.trim() !== "" && !Number.isNaN(parseFloat(v)) ? parseFloat(v) : null);
 
-    if ([temperature, humidity, electricity_consumption].some((v) => Number.isNaN(v))) {
+    const required = climacool
+      ? [temperature, state_electricity_consumption, oni_index]
+      : [temperature, humidity, electricity_consumption];
+    if (required.some((v) => Number.isNaN(v))) {
       showToast("Please fill in all required numeric fields.", "error");
       return;
     }
 
     setSubmitting(true);
     try {
-      const data = await doPredict({
-        temperature,
-        humidity,
-        electricity_consumption,
-        population_density,
-        model_type: form.model_type,
-      });
+      const payload = climacool
+        ? {
+            temperature,
+            state_electricity_consumption,
+            oni_index,
+            city: form.city || null,
+            state: form.state || null,
+            latitude: optNum(form.latitude),
+            longitude: optNum(form.longitude),
+          }
+        : { temperature, humidity, electricity_consumption, population_density };
+      const data = await doPredict({ ...payload, model_type: form.model_type });
       setResult(data);
+      setOtherResult(null);
+      if (climacool) {
+        const other: ModelType = form.model_type === "kmeans" ? "dbscan" : "kmeans";
+        if (other === "kmeans" ? kmeans.data : dbscan.data) {
+          setOtherResult(await doPredict({ ...payload, model_type: other }));
+        }
+      }
       showToast("Prediction complete.", "success");
     } catch (err) {
       const normalized = normalizeApiError(err);
@@ -151,6 +193,46 @@ export function Prediction() {
                 placeholder="e.g. 38.5"
                 error={fieldError("temperature")}
               />
+              {climacool ? (
+                <>
+                  <FormField
+                    label="State Electricity Consumption"
+                    unit="state-level"
+                    icon={Zap}
+                    value={form.state_electricity_consumption}
+                    onChange={(v) => setForm((f) => ({ ...f, state_electricity_consumption: v }))}
+                    placeholder="e.g. 2500"
+                    error={fieldError("state_electricity_consumption")}
+                  />
+                  <FormField
+                    label="ONI Index"
+                    unit="NOAA"
+                    icon={Waves}
+                    value={form.oni_index}
+                    onChange={(v) => setForm((f) => ({ ...f, oni_index: v }))}
+                    placeholder="e.g. 0.8 (negative = cooler)"
+                    error={fieldError("oni_index")}
+                  />
+                  <p className="text-ground-500 text-xs leading-relaxed">{ONI_EXPLANATION}</p>
+                  <p className="text-ground-500 text-xs pt-1 flex items-center gap-1.5">
+                    <MapPin size={12} /> Optional context (not used as clustering features)
+                  </p>
+                  <div className="grid grid-cols-2 gap-3">
+                    {(["city", "state", "latitude", "longitude"] as const).map((k) => (
+                      <input
+                        key={k}
+                        type={k === "city" || k === "state" ? "text" : "number"}
+                        step="any"
+                        value={form[k]}
+                        onChange={(e) => setForm((f) => ({ ...f, [k]: e.target.value }))}
+                        placeholder={k[0].toUpperCase() + k.slice(1)}
+                        className="w-full bg-ground-800 border border-ground-700 rounded-lg px-3 py-2 text-sm text-ground-100 placeholder:text-ground-600 focus:outline-none focus:ring-2 focus:ring-cool-500/50"
+                      />
+                    ))}
+                  </div>
+                </>
+              ) : (
+              <>
               <FormField
                 label="Humidity"
                 unit="%"
@@ -179,6 +261,8 @@ export function Prediction() {
                 error={fieldError("population_density")}
                 required={false}
               />
+              </>
+              )}
 
               <Button
                 type="submit"
@@ -197,7 +281,30 @@ export function Prediction() {
           {/* ---- Result ---- */}
           <div className="space-y-6">
             <Card className="p-6 min-h-[220px] flex flex-col justify-center">
-              {result ? (
+              {result?.is_noise ? (
+                <div>
+                  <div className="flex items-center gap-2.5 mb-3">
+                    <div className="rounded-full bg-ground-700 p-2">
+                      <ScatterChart size={16} className="text-ground-300" />
+                    </div>
+                    <p className="text-ground-400 text-xs uppercase tracking-wide font-mono-data">
+                      DBSCAN result
+                    </p>
+                  </div>
+                  <div className="mb-4">
+                    <RiskBadge level={result.risk_level} />
+                  </div>
+                  <div className="mb-4">
+                    <p className="text-ground-500 text-xs mb-0.5">Cluster</p>
+                    <p className="font-mono-data text-ground-100 font-semibold">
+                      {result.cluster} <span className="text-ground-500 font-normal">(noise)</span>
+                    </p>
+                  </div>
+                  <p className="text-ground-300 text-sm leading-relaxed">
+                    {result.explanation}
+                  </p>
+                </div>
+              ) : result ? (
                 <div>
                   <p className="text-ground-400 text-xs uppercase tracking-wide font-mono-data mb-2">
                     Predicted risk level
@@ -235,7 +342,47 @@ export function Prediction() {
               )}
             </Card>
 
-            {result && result.recommendations.length > 0 && (
+            {result && climacool && (
+              <Card className="p-6">
+                <h3 className="font-display font-semibold text-ground-50 mb-3">
+                  K-Means vs DBSCAN for this input
+                </h3>
+                <div className="grid sm:grid-cols-2 gap-4 text-sm">
+                  {[result, otherResult]
+                    .filter((r): r is PredictionResponse => !!r)
+                    .sort((a, b) => a.model_used.localeCompare(b.model_used) * -1)
+                    .map((r) => (
+                      <div key={r.model_used} className="rounded-lg bg-ground-800/60 p-3">
+                        <p className="text-ground-500 text-xs uppercase tracking-wide mb-1">
+                          {r.model_used === "kmeans" ? "K-Means" : "DBSCAN"}
+                        </p>
+                        <p className="font-mono-data text-ground-100 mb-1.5">
+                          Cluster {r.cluster}
+                          {r.is_noise && <span className="text-ground-500"> (noise)</span>}
+                        </p>
+                        <RiskBadge level={r.risk_level} />
+                        {r.is_noise && (
+                          <p className="text-ground-400 text-xs mt-2">Noise / outlier — not in a learned dense cluster.</p>
+                        )}
+                      </div>
+                    ))}
+                </div>
+                {!otherResult && (
+                  <p className="text-ground-500 text-xs mt-3">
+                    Train the other model to see both results side by side.
+                  </p>
+                )}
+                <div className="mt-4 flex flex-wrap items-center gap-3 text-sm">
+                  <span className="text-ground-400">ONI: <span className="font-mono-data text-ground-100">{result.oni_index ?? "—"}</span></span>
+                  {result.enso_phase && <EnsoBadge phase={result.enso_phase} />}
+                </div>
+                <p className="text-ground-500 text-xs mt-3 leading-relaxed">
+                  {result.explanation ?? "Risk level is derived from the cluster's mean temperature and state-level electricity consumption. ENSO phase is based on the supplied ONI classification; this is an association in the data, not proof that El Niño caused the result."}
+                </p>
+              </Card>
+            )}
+
+            {result && !result.is_noise && result.recommendations.length > 0 && (
               <Card className="p-6">
                 <h3 className="font-display font-semibold text-ground-50 mb-3">
                   Recommendations
@@ -248,6 +395,25 @@ export function Prediction() {
                     </li>
                   ))}
                 </ul>
+              </Card>
+            )}
+
+            {result?.is_noise && (
+              <Card className="p-6 bg-ground-800/50 border-ground-700">
+                <h3 className="font-display font-semibold text-ground-50 mb-2 flex items-center gap-2">
+                  <ScatterChart size={16} className="text-ground-400" />
+                  Why K-Means and DBSCAN can disagree
+                </h3>
+                <p className="text-ground-400 text-sm leading-relaxed">
+                  K-Means always assigns every input to its nearest cluster, so
+                  it always returns a risk level. DBSCAN instead checks whether
+                  an input sits in a sufficiently dense region of the training
+                  data — if it doesn't, DBSCAN reports it as noise (cluster{" "}
+                  <span className="font-mono-data">-1</span>) rather than
+                  forcing it into a cluster it doesn't really belong to. That's
+                  expected, correct behavior for these two algorithms, not a
+                  bug — the two models are answering different questions.
+                </p>
               </Card>
             )}
           </div>
@@ -272,7 +438,10 @@ export function Prediction() {
                 {predictionHistory.slice(1).map((p, i) => (
                   <tr key={i} className="border-b border-ground-800 last:border-0">
                     <td className="py-2.5 text-ground-300 capitalize">{p.model_used}</td>
-                    <td className="py-2.5 text-ground-300 font-mono-data">{p.cluster}</td>
+                    <td className="py-2.5 text-ground-300 font-mono-data">
+                      {p.cluster}
+                      {p.is_noise && <span className="text-ground-500"> (noise)</span>}
+                    </td>
                     <td className="py-2.5">
                       <RiskBadge level={p.risk_level} />
                     </td>

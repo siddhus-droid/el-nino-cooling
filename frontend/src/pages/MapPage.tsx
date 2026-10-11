@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from "react-leaflet";
-import { MapPin, Thermometer, Droplets, Zap, Layers } from "lucide-react";
+import { MapPin, Thermometer, Droplets, Zap, Layers, Waves } from "lucide-react";
 import { useAppState } from "../context/AppStateContext";
 import { PageHeader } from "../components/layout/PageHeader";
 import { Card } from "../components/ui/Card";
@@ -170,7 +170,7 @@ export function MapPage() {
               >
                 <TileLayer
                   attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                  url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+                  url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
                 />
                 <FitBounds points={points} />
                 {cityGroups.map((group) => (
@@ -223,8 +223,22 @@ function CityMarker({
 
           <dl className="space-y-1 text-xs">
             <Row icon={Thermometer} label="Avg. Temperature" value={`${group.avgTemperature.toFixed(1)} °C`} />
-            <Row icon={Droplets} label="Avg. Humidity" value={`${group.avgHumidity.toFixed(1)} %`} />
-            <Row icon={Zap} label="Avg. Electricity" value={`${group.avgElectricityConsumption.toFixed(0)} kWh`} />
+            {group.state && <Row icon={MapPin} label="State" value={group.state} />}
+            {group.avgHumidity !== null && (
+              <Row icon={Droplets} label="Avg. Humidity" value={`${group.avgHumidity.toFixed(1)} %`} />
+            )}
+            {group.avgElectricityConsumption !== null && (
+              <Row icon={Zap} label="Avg. Electricity" value={`${group.avgElectricityConsumption.toFixed(0)} kWh`} />
+            )}
+            {group.avgStateElectricityConsumption !== null && (
+              <Row icon={Zap} label="Avg. State Electricity Consumption" value={group.avgStateElectricityConsumption.toFixed(0)} />
+            )}
+            {group.avgOniIndex !== null && (
+              <Row icon={Waves} label="Avg. ONI Index" value={group.avgOniIndex.toFixed(2)} />
+            )}
+            {group.dominantEnsoPhase && (
+              <Row icon={Waves} label="ENSO phase" value={group.dominantEnsoPhase} />
+            )}
           </dl>
 
           <div className="mt-2 pt-2 border-t border-gray-200 space-y-0.5 text-xs">

@@ -13,6 +13,7 @@ import {
   CheckCircle2,
   Circle,
 } from "lucide-react";
+import { isClimacool } from "../utils/enso";
 import { useAppState } from "../context/AppStateContext";
 import { PageHeader } from "../components/layout/PageHeader";
 import { StatCard } from "../components/ui/Card";
@@ -20,6 +21,7 @@ import { Button } from "../components/ui/Button";
 import {
   cityCountFromScatter,
   meanFromHistogram,
+  meanYFromScatter,
 } from "../utils/edaDerived";
 
 export function Overview() {
@@ -40,8 +42,12 @@ export function Overview() {
   const rows = preprocess.data?.rows_after ?? upload.data?.rows ?? null;
   const cities = cityCountFromScatter(eda.data);
   const avgTemp = meanFromHistogram(eda.data, "temperature_distribution");
-  const avgHumidity = meanFromHistogram(eda.data, "humidity_distribution");
-  const avgElectricity = meanFromHistogram(eda.data, "energy_distribution");
+  const climacool = isClimacool(eda.data?.dataset_profile ?? preprocess.data?.dataset_profile ?? upload.data?.dataset_profile);
+  // Humidity only exists in the legacy schema; never shown for ClimaCool data.
+  const avgHumidity = climacool ? null : meanFromHistogram(eda.data, "humidity_distribution");
+  const avgElectricity = climacool
+    ? meanYFromScatter(eda.data, "scatter_plot")
+    : meanFromHistogram(eda.data, "energy_distribution");
 
   const steps = [
     { label: "Dataset uploaded", done: !!upload.data || !!preprocess.data },
@@ -87,17 +93,19 @@ export function Overview() {
           icon={Thermometer}
           accent="hot"
         />
+        {!climacool && (
+          <StatCard
+            label="Avg. Humidity"
+            value={avgHumidity !== null ? avgHumidity.toFixed(1) : null}
+            suffix="%"
+            icon={Droplets}
+            accent="cool"
+          />
+        )}
         <StatCard
-          label="Avg. Humidity"
-          value={avgHumidity !== null ? avgHumidity.toFixed(1) : null}
-          suffix="%"
-          icon={Droplets}
-          accent="cool"
-        />
-        <StatCard
-          label="Avg. Electricity"
+          label={climacool ? "Avg. State Electricity" : "Avg. Electricity"}
           value={avgElectricity !== null ? avgElectricity.toFixed(0) : null}
-          suffix="kWh"
+          suffix={climacool ? "" : "kWh"}
           icon={Zap}
           accent="amber"
         />

@@ -21,6 +21,37 @@ npm run preview    # preview the production build locally
 
 ## What changed in this update
 
+- **`src/api/types.ts`** — `PredictionResponse` gained `is_noise: boolean`
+  and `explanation: string | null`, matching the backend's new fields.
+- **`src/pages/Prediction.tsx`** — when a DBSCAN prediction returns noise
+  (`is_noise: true`), the result panel no longer shows a fabricated risk
+  badge alongside recommendations. Instead it shows the cluster marked
+  `(noise)`, the `Noise / Outlier` badge, the backend's truthful
+  explanation text, no recommendations list, and a small card explaining
+  why K-Means and DBSCAN are allowed to disagree here (K-Means always
+  assigns a cluster; DBSCAN can correctly decline to). The "Recent
+  predictions" history table also marks noise-cluster rows explicitly.
+- **`src/components/ui/Badge.tsx`** — added an explicit, intentional style
+  for the `"Noise / Outlier"` label (dashed border, neutral gray) so it
+  reads as a distinct model output, not a risk level that happened to
+  fall through to the default badge style.
+- **`src/pages/EDA.tsx`** — added a truthful caption ("Only one time
+  period is present in the current dataset.") under `monthly_trend`/
+  `yearly_trend` when the chart's own data legitimately has only one
+  distinct time period — detected from the actual chart trace data, nothing
+  fabricated or smoothed.
+- Backend also fixed the Correlation Matrix's clipped axis labels (see
+  backend README) - no frontend change was needed for this, since
+  `PlotlyChart.tsx`'s margin-merging already applies whatever `layout.margin`
+  the backend sends.
+
+## Prior update (still present)
+
+- EDA auto-load effect fix (re-upload no longer leaves the page blank),
+  `ChartErrorBoundary` (one bad chart can't blank the whole page), Geo View
+  rewritten with real Leaflet + `GET /clusters/records`, shared cluster
+  color mapping (`clusterColors.ts`) between `ClusterBarChart` and the map.
+
 ### Problem 1 — EDA charts not rendering
 
 **Root cause:** `EDA.tsx`'s auto-load `useEffect` depended on a derived

@@ -23,7 +23,7 @@ from typing import Any, Optional
 import joblib
 import pandas as pd
 
-from app.config import settings
+from app.config import DatasetProfile, LEGACY_PROFILE, get_profile_by_name, settings
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -43,6 +43,7 @@ class AppState:
         self.dbscan_model: Any = None
 
         self.metrics: dict = {}
+        self.dataset_profile: DatasetProfile = LEGACY_PROFILE
 
         self._load_from_disk()
 
@@ -63,16 +64,22 @@ class AppState:
                 self.kmeans_model = joblib.load(settings.KMEANS_MODEL_FILE)
             if settings.DBSCAN_MODEL_FILE.exists():
                 self.dbscan_model = joblib.load(settings.DBSCAN_MODEL_FILE)
+            if settings.PROFILE_FILE.exists():
+                self.dataset_profile = get_profile_by_name(
+                    json.loads(settings.PROFILE_FILE.read_text()).get("name")
+                )
             if settings.METRICS_FILE.exists():
                 self.metrics = json.loads(settings.METRICS_FILE.read_text())
             logger.info("Application state restored from disk.")
         except Exception as exc:  # noqa: BLE001
             logger.warning("Could not fully restore state from disk: %s", exc)
 
-    def save_raw(self, df: pd.DataFrame) -> None:
+    def save_raw(self, df: pd.DataFrame, profile: DatasetProfile) -> None:
         with self._lock:
             self.raw_df = df
+            self.dataset_profile = profile
             df.to_pickle(settings.RAW_DATA_FILE)
+            settings.PROFILE_FILE.write_text(json.dumps({"name": profile.name}))
 
     def save_processed(self, df: pd.DataFrame) -> None:
         with self._lock:

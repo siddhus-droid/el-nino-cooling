@@ -45,6 +45,9 @@ async def upload_dataset(file: UploadFile = File(...)) -> UploadResponse:
         filename=result["filename"],
         rows=result["rows"],
         columns=result["columns"],
+        dataset_profile=result["dataset_profile"],
+        dataset_profile_display=result["dataset_profile_display"],
+        clustering_features=result["clustering_features"],
         message="File uploaded and validated successfully.",
     )
 
@@ -60,6 +63,8 @@ async def preprocess_dataset() -> PreprocessResponse:
         missing_values_handled=report["missing_values_handled"],
         outliers_removed=report["outliers_removed"],
         columns=report["columns"],
+        dataset_profile=report["dataset_profile"],
+        clustering_features=report["clustering_features"],
         message="Preprocessing completed successfully.",
     )
 
@@ -70,8 +75,8 @@ async def preprocess_dataset() -> PreprocessResponse:
 @router.get("/eda", response_model=EDAResponse, tags=["EDA"])
 async def get_eda() -> EDAResponse:
     """Generate exploratory data analysis charts (Plotly JSON) for the current dataset."""
-    charts = data_service.handle_eda()
-    return EDAResponse(charts=charts)
+    result = data_service.handle_eda()
+    return EDAResponse(charts=result["charts"], dataset_profile=result["dataset_profile"])
 
 
 # ---------------------------------------------------------------------------
@@ -89,6 +94,8 @@ async def train_kmeans_endpoint(payload: KMeansTrainRequest = KMeansTrainRequest
         inertia=result["inertia"],
         cluster_counts=result["cluster_counts"],
         elbow_scores=result["elbow_scores"],
+        dataset_profile=result["dataset_profile"],
+        clustering_features=result["clustering_features"],
         message="K-Means model trained successfully.",
     )
 
@@ -104,6 +111,8 @@ async def train_dbscan_endpoint(payload: DBSCANTrainRequest = DBSCANTrainRequest
         n_noise=result["n_noise"],
         silhouette_score=result["silhouette_score"],
         cluster_counts=result["cluster_counts"],
+        dataset_profile=result["dataset_profile"],
+        clustering_features=result["clustering_features"],
         message="DBSCAN model trained successfully.",
     )
 
@@ -133,6 +142,8 @@ async def predict_endpoint(payload: PredictionRequest) -> PredictionResponse:
         temperature=payload.temperature,
         humidity=payload.humidity,
         electricity_consumption=payload.electricity_consumption,
+        state_electricity_consumption=payload.state_electricity_consumption,
+        oni_index=payload.oni_index,
         population_density=payload.population_density,
         model_type=payload.model_type,
     )

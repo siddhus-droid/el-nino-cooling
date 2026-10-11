@@ -8,11 +8,17 @@
 // ---------------------------------------------------------------------------
 // Upload / Preprocess
 // ---------------------------------------------------------------------------
+/** Schema auto-detected by the backend from the uploaded CSV's columns. */
+export type DatasetProfileName = "legacy" | "climacool_real";
+
 export interface UploadResponse {
   status: string;
   filename: string;
   rows: number;
   columns: string[];
+  dataset_profile: DatasetProfileName;
+  dataset_profile_display: string;
+  clustering_features: string[];
   message: string;
 }
 
@@ -24,6 +30,8 @@ export interface PreprocessResponse {
   missing_values_handled: number;
   outliers_removed: number;
   columns: string[];
+  dataset_profile: DatasetProfileName;
+  clustering_features: string[];
   message: string;
 }
 
@@ -38,6 +46,7 @@ export interface PlotlyFigure {
 export interface EDAResponse {
   status: string;
   charts: Record<string, PlotlyFigure>;
+  dataset_profile: DatasetProfileName;
 }
 
 // ---------------------------------------------------------------------------
@@ -56,6 +65,8 @@ export interface KMeansTrainResponse {
   inertia: number;
   cluster_counts: Record<string, number>;
   elbow_scores: Record<string, number>;
+  dataset_profile: DatasetProfileName;
+  clustering_features: string[];
   message: string;
 }
 
@@ -72,6 +83,8 @@ export interface DBSCANTrainResponse {
   n_noise: number;
   silhouette_score: number | null;
   cluster_counts: Record<string, number>;
+  dataset_profile: DatasetProfileName;
+  clustering_features: string[];
   message: string;
 }
 
@@ -100,19 +113,34 @@ export type ModelType = "kmeans" | "dbscan";
 
 export interface PredictionRequest {
   temperature: number;
-  humidity: number;
-  electricity_consumption: number;
+  // Legacy schema inputs
+  humidity?: number | null;
+  electricity_consumption?: number | null;
+  // ClimaCool schema inputs (electricity is STATE-level)
+  state_electricity_consumption?: number | null;
+  oni_index?: number | null;
   population_density?: number | null;
+  // Informational only - the backend never uses these as clustering features
+  city?: string | null;
+  state?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
   model_type: ModelType;
 }
 
 export interface PredictionResponse {
   status: string;
   cluster: number;
+  is_noise: boolean;
   risk_level: string;
   cooling_demand_category: string;
   recommendations: string[];
   model_used: string;
+  dataset_profile: DatasetProfileName;
+  clustering_features: string[];
+  oni_index: number | null;
+  enso_phase: string | null;
+  explanation: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -136,9 +164,16 @@ export interface ClusterRecordItem {
   latitude: number;
   longitude: number;
   temperature: number;
-  humidity: number;
-  electricity_consumption: number;
+  humidity?: number | null;
+  electricity_consumption?: number | null;
   population_density?: number | null;
+  state?: string | null;
+  population?: number | null;
+  min_temperature?: number | null;
+  max_temperature?: number | null;
+  state_electricity_consumption?: number | null;
+  oni_index?: number | null;
+  enso_phase?: string | null;
   kmeans_cluster?: number | null;
   kmeans_risk_level?: string | null;
   dbscan_cluster?: number | null;
@@ -147,6 +182,7 @@ export interface ClusterRecordItem {
 
 export interface ClusterRecordsResponse {
   status: string;
+  dataset_profile: DatasetProfileName;
   total_records: number;
   kmeans_trained: boolean;
   dbscan_trained: boolean;

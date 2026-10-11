@@ -13,20 +13,34 @@ from app.clustering.dbscan_model import predict_dbscan
 from app.clustering.kmeans_model import predict_kmeans
 from app.config import settings
 from app.recommendations.recommender import get_all_recommendations, get_recommendations
-from app.recommendations.risk_engine import RiskClassifier
+from app.recommendations.risk_engine import NOISE_LABEL, RiskClassifier
 from app.services.state import app_state
+from app.utils.enso import classify_oni
 from app.utils.exceptions import ModelNotTrainedError, NoDatasetAvailableError, PredictionError
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
 
-def _build_feature_vector(temperature: float, humidity: float, electricity_consumption: float) -> np.ndarray:
+def _build_feature_values(
+    profile_features: tuple, inputs: dict[str, float | None]
+) -> dict[str, float | None]:
+    """Map the request inputs onto the active profile's clustering feature names."""
+    return {f: inputs.get(f) for f in profile_features}
+
+
+def _build_feature_vector(values: dict[str, float | None]) -> np.ndarray:
     if app_state.scaler is None:
         raise PredictionError(
             message="No fitted scaler available. Please run /preprocess before predicting."
         )
-    raw = np.array([[temperature, humidity, electricity_consumption]])
+    missing = [k for k, v in values.items() if v is None]
+    if missing:
+        raise PredictionError(
+            message=f"Missing required input(s) for the current dataset: {missing}",
+            details={"missing_fields": missing, "required": list(values.keys())},
+        )
+    raw = np.array([[float(v) for v in values.values()]])
     try:
         scaled = app_state.scaler.transform(raw)
     except Exception as exc:  # noqa: BLE001
@@ -36,13 +50,25 @@ def _build_feature_vector(temperature: float, humidity: float, electricity_consu
 
 def predict(
     temperature: float,
-    humidity: float,
-    electricity_consumption: float,
+    humidity: float | None,
+    electricity_consumption: float | None,
+    state_electricity_consumption: float | None,
+    oni_index: float | None,
     population_density: float | None,
     model_type: str,
 ) -> dict[str, Any]:
     """Predict cluster + risk level + recommendations for a single new record."""
-    X_new = _build_feature_vector(temperature, humidity, electricity_consumption)
+    profile = app_state.dataset_profile
+    inputs: dict[str, float | None] = {
+        "Temperature": temperature,
+        "Humidity": humidity,
+        "Electricity_Consumption": electricity_consumption,
+        "State_Electricity_Consumption": state_electricity_consumption,
+        "ONI_Index": oni_index,
+    }
+    values = _build_feature_values(profile.clustering_features, inputs)
+    X_new = _build_feature_vector(values)
+    consumption_value = inputs.get(profile.consumption_col)
 
     if model_type == "kmeans":
         if app_state.kmeans_model is None:
@@ -67,25 +93,38 @@ def predict(
         )
 
     classifier = RiskClassifier.from_dict(classifier_dict)
-    risk_level = classifier.classify(cluster, temperature, electricity_consumption)
-    recommendations = get_recommendations(risk_level)
+    risk_level = classifier.classify(cluster, temperature, consumption_value)
+    is_noise = risk_level == NOISE_LABEL
 
-    logger.info(
-        "Prediction (%s): cluster=%d risk=%s | T=%.2f H=%.2f E=%.2f",
-        model_type,
-        cluster,
-        risk_level,
-        temperature,
-        humidity,
-        electricity_consumption,
-    )
+    if is_noise:
+        recommendations: list[str] = []
+        explanation = (
+            "DBSCAN identified this input as a noise/outlier point rather than "
+            "assigning it to a learned cluster. A cooling-demand risk level cannot "
+            "be reliably inferred from the DBSCAN cluster assignment."
+        )
+    else:
+        recommendations = get_recommendations(risk_level)
+        explanation = None
+
+    enso_phase = None
+    if profile.name == "climacool_real" and oni_index is not None:
+        enso_phase = classify_oni(float(oni_index))
+
+    logger.info("Prediction (%s): cluster=%d risk=%s | %s", model_type, cluster, risk_level, values)
 
     return {
         "cluster": cluster,
+        "is_noise": is_noise,
         "risk_level": risk_level,
         "cooling_demand_category": risk_level,
         "recommendations": recommendations,
+        "explanation": explanation,
         "model_used": model_type,
+        "dataset_profile": profile.name,
+        "clustering_features": list(profile.clustering_features),
+        "oni_index": oni_index if profile.name == "climacool_real" else None,
+        "enso_phase": enso_phase,
     }
 
 
@@ -132,6 +171,21 @@ def get_cluster_records() -> dict[str, Any]:
     kmeans_trained = app_state.kmeans_model is not None and "kmeans_cluster" in df.columns
     dbscan_trained = app_state.dbscan_model is not None and "dbscan_cluster" in df.columns
 
+    profile = app_state.dataset_profile
+    # Optional output field -> source column; populated only if the column exists.
+    optional_fields = {
+        "humidity": ("Humidity", float),
+        "electricity_consumption": ("Electricity_Consumption", float),
+        "population_density": ("Population_Density", float),
+        "state": ("State", str),
+        "population": ("Population", float),
+        "min_temperature": ("Min_Temperature", float),
+        "max_temperature": ("Max_Temperature", float),
+        "state_electricity_consumption": ("State_Electricity_Consumption", float),
+        "oni_index": ("ONI_Index", float),
+        "enso_phase": ("ENSO_Phase", str),
+    }
+
     records: list[dict[str, Any]] = []
     for _, row in df.iterrows():
         record: dict[str, Any] = {
@@ -140,12 +194,10 @@ def get_cluster_records() -> dict[str, Any]:
             "latitude": float(row["Latitude"]),
             "longitude": float(row["Longitude"]),
             "temperature": float(row["Temperature"]),
-            "humidity": float(row["Humidity"]),
-            "electricity_consumption": float(row["Electricity_Consumption"]),
         }
-
-        if "Population_Density" in df.columns and pd.notna(row["Population_Density"]):
-            record["population_density"] = float(row["Population_Density"])
+        for out_key, (col, cast) in optional_fields.items():
+            if col in df.columns and pd.notna(row[col]):
+                record[out_key] = cast(row[col])
 
         if kmeans_trained:
             record["kmeans_cluster"] = int(row["kmeans_cluster"])
@@ -158,6 +210,7 @@ def get_cluster_records() -> dict[str, Any]:
         records.append(record)
 
     return {
+        "dataset_profile": profile.name,
         "total_records": len(records),
         "kmeans_trained": kmeans_trained,
         "dbscan_trained": dbscan_trained,

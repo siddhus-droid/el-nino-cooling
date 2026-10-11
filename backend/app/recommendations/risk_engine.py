@@ -24,6 +24,15 @@ RISK_LEVELS = [
     "Extreme Cooling Demand",
 ]
 
+# Sentinel returned for DBSCAN noise (cluster_id == -1). Deliberately NOT
+# one of RISK_LEVELS: DBSCAN noise means "this record does not sit in any
+# sufficiently dense learned region," which is a statement about the
+# clustering result, not a cooling-demand risk. A noise point's own raw
+# Temperature/Electricity_Consumption values still exist, but inferring a
+# risk level from them here would misrepresent the DBSCAN model's actual
+# output ("no dense-region membership") as if it were a risk judgment.
+NOISE_LABEL = "Noise / Outlier"
+
 
 @dataclass
 class RiskClassifier:
@@ -32,16 +41,15 @@ class RiskClassifier:
     combination of mean temperature and mean electricity consumption)
     and assigns ordinal risk levels to the ranked clusters.
 
-    Records that don't belong to any ranked cluster - DBSCAN noise
-    (cluster_id == -1), or a cluster id the classifier was never fit on -
-    are classified from their own raw Temperature/Electricity_Consumption
-    values using the same composite-score formula, then bucketed by rank
-    against the known clusters' scores. This is deliberate: a noise point
-    is not inherently low-risk. DBSCAN flags a record as noise because it
-    doesn't sit in a *dense* region of the feature space, which just as
-    often happens because it's an unusually extreme (hot, high-consumption)
-    record as a mild one. Assuming noise == low risk would silently
-    mislabel exactly the outlier records most worth flagging.
+    DBSCAN noise (cluster_id == -1) always classifies to NOISE_LABEL,
+    never one of the four ordinal risk levels: DBSCAN explicitly reported
+    that the record doesn't belong to any sufficiently dense learned
+    region, and a risk level should not be silently invented from that.
+    A genuinely unseen *non-noise* cluster id (should not occur in
+    practice, since predictions only ever return cluster ids the model
+    was fit on) falls back to scoring the record's own raw
+    Temperature/Electricity_Consumption values against the ranked
+    clusters, as a defensive measure only.
     """
 
     cluster_to_risk: dict[int, str]
@@ -66,8 +74,9 @@ class RiskClassifier:
         Build the cluster -> risk-level mapping from a labeled training
         dataframe. Noise points (cluster == -1) are excluded from the
         cluster ranking itself (there's no coherent "noise cluster" mean
-        to rank), but the score bounds computed here are reused by
-        `classify()` to score noise/unseen records individually.
+        to rank, and noise always classifies to NOISE_LABEL regardless).
+        The score bounds computed here are kept only for the defensive
+        unseen-non-noise-cluster fallback in `classify()`.
         """
         working = df[df[cluster_col] != -1]
         cluster_ids = sorted(working[cluster_col].unique().tolist())
@@ -146,16 +155,21 @@ class RiskClassifier:
         """
         Return the risk level for a record.
 
-        - If cluster_id is a known, ranked cluster, use its data-driven
-          label directly.
-        - Otherwise (DBSCAN noise, or a cluster id never seen during fit)
-          classify from the record's own Temperature/Electricity_Consumption
-          values, scored on the same scale as the ranked clusters. Falls
-          back to the lowest risk level only if no feature values are
-          available to score with (should not happen in normal use - both
-          call sites always have the record's real readings).
+        - cluster_id == -1 (DBSCAN noise) always returns NOISE_LABEL,
+          regardless of the record's own feature values. This is not a
+          risk level and callers must not treat it as one (no
+          recommendations should be generated from it).
+        - A known, ranked cluster returns its data-driven label directly.
+        - A genuinely unseen non-noise cluster id (defensive fallback,
+          should not occur in normal operation) is scored from the
+          record's own Temperature/Electricity_Consumption against the
+          ranked clusters' scores, falling back to the lowest risk level
+          only if no feature values are available to score with.
         """
-        if cluster_id != -1 and cluster_id in self.cluster_to_risk:
+        if cluster_id == -1:
+            return NOISE_LABEL
+
+        if cluster_id in self.cluster_to_risk:
             return self.cluster_to_risk[cluster_id]
 
         if temperature is not None and electricity_consumption is not None:
