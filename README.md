@@ -254,7 +254,7 @@ The application uses separate deployment services for its frontend and backend.
 
 | Component | Platform | Link |
 |---|---|---|
-| Frontend | Vercel | Add your deployed frontend URL |
+| Frontend | Vercel | el-nino-cooling.vercel.app |
 | Backend | Render | https://el-nino-cooling.onrender.com/ |
 | Source Code | GitHub | https://github.com/siddhus-droid/el-nino-cooling |
 
